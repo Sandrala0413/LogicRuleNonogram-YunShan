@@ -1,0 +1,10 @@
+bin
+obj
+dep
+txt
+temp
+.vscode
+*.o
+*.exe
+*.txt
+*.sh
