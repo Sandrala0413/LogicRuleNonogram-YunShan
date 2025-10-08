@@ -4,12 +4,12 @@
 
 # Compiler settings - Can be customized.
 CC = g++
-CXXFLAGS = -O3 -std=c++11 -I$(INCdir) #-msse4.2 -m64 -g3
+CXXFLAGS = -O2 -g -std=c++11 -I$(INCdir) #-msse4.2 -m64 -g3
 LDFLAGS = 
 INCdir = include
 
 # Makefile settings - Can be customized.
-APPNAME = nonogram
+APPNAME = nonogram.exe
 EXT = .cpp
 SRCDIR = src
 OBJDIR = obj

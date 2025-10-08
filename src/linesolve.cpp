@@ -4,16 +4,19 @@
 
 #include <cstdio>
 
+// 0x1 = 01 = blank(ZERO)
+// 0x2 = 10 = fill(ONE)
+// 0x3 = 11 = UNKNOWN
 const uint64_t value1[28] = {
-    0x1ULL,     // 0
-    0x9ULL,     // 10
-    0x29ULL,    // 010
-    0xA9ULL,    // 1110
-    0x2A9ULL,   // 01110
+    0x1ULL,     // 0 = 01 = 一個空格
+    0x9ULL,     // 10 = 1001 = 一個黑格+一個空格
+    0x29ULL,    // 110 = 101001 = 兩個黑格+一個空格
+    0xA9ULL,    // 1110 
+    0x2A9ULL,   // 11110
     0xAA9ULL,   // 111110
-    0x2AA9ULL,  // 0111110
+    0x2AA9ULL,  // 1111110
     0xAAA9ULL,  // 11111110
-    0x2AAA9ULL, // 011111110
+    0x2AAA9ULL, // 111111110
     0xAAAA9ULL,
     0x2AAAA9ULL,
     0xAAAAA9ULL,
@@ -31,7 +34,7 @@ const uint64_t value1[28] = {
     0xAAAAAAAAAAA9ULL,
     0x2AAAAAAAAAAA9ULL,
     0xAAAAAAAAAAAA9ULL,
-    0x2AAAAAAAAAAAA9ULL, // 011111111111111111111111110
+    0x2AAAAAAAAAAAA9ULL, // 111111111111111111111111110
     0xAAAAAAAAAAAAA9ULL, // 1111111111111111111111111110
 };
 
@@ -48,6 +51,8 @@ LineSolve::LineSolve(int* d) {
 
 void LineSolve::init() {}
 
+//d[0] = #clue of line 1
+//d[1]~d[13] = clues of line 1
 void LineSolve::load(int* d) {
 	MEMSET_ZERO(low_bound);
 
@@ -57,9 +62,9 @@ void LineSolve::load(int* d) {
 		clue[i].count = d[i * 14];
 
 		for (int j = 1; j <= d[i * 14]; ++j) {
-			clue[i].num[j - 1] = d[i * 14 + j];
-			sum += d[i * 14 + j] + 1;
-			low_bound[i][j] = sum - 1;
+			clue[i].num[j - 1] = d[i * 14 + j];	//各個線索存進每行
+			sum += d[i * 14 + j] + 1;		
+			low_bound[i][j] = sum - 1;	//每個線索最早可能結束位置
 		}
 
 		genHash(clue[i]);
@@ -67,7 +72,7 @@ void LineSolve::load(int* d) {
 }
 
 int propagate(LineSolve& ls, Board& board) {
-	uint64_t chkline = 0;
+	uint64_t chkline = 0;	//紀錄有哪些行/列有改變
 	for (int i = 0; i < 50; ++i) {
 		if (board.oldData[i] != board.data[i]) chkline |= 1LL << i;
 	}
@@ -81,27 +86,28 @@ int propagate(LineSolve& ls, Board& board) {
 			nextchk = 0LL;
 		}
 
-		lineNum = __builtin_ffsll(chkline) - 1;
+		lineNum = __builtin_ffsll(chkline) - 1;		//取得從右數起第一個1的位置
 		// printf("lineNum = %d\n", lineNum);
-		chkline &= chkline - 1;
+		chkline &= chkline - 1;		//清除剛剛處理的那個bit
 
 		uint64_t line = getLine(board, lineNum)
-		                << 4;     // 0033333333333333333333333
-		__SET(line, 1, BIT_ZERO); // 0133333333333333333333333
+		                << 4;     // 3333333333333333333333300
+		__SET(line, 1, BIT_ZERO); // 3333333333333333333333310 把第2格變成空白
 
 		uint64_t newLine = 0LL;
 
-		if (!findHash(ls.clue[lineNum], line, newLine)) // ��֮ǰ�ě]�����
+		// 從hash table找是否已經算過符合這個線索的最佳推理值
+		if (!findHash(ls.clue[lineNum], line, newLine)) 
 		{
 			newLine = 0LL;
 
 			const int fixAns =
 			    fixBU(ls, lineNum, line, ls.clue[lineNum].count, newLine);
-			if (unlikely(LS_NO == fixAns)) {
+			if (unlikely(LS_NO == fixAns)) {	//LS_NO = 與線索矛盾
 				return CONFLICT;
 			}
 
-			insertHash(ls.clue[lineNum], line, newLine); // ����line��
+			insertHash(ls.clue[lineNum], line, newLine);
 		}
 
 		newLine >>= 4;
@@ -110,14 +116,16 @@ int propagate(LineSolve& ls, Board& board) {
 		if (line != newLine) {
 			board.data[lineNum] = newLine;
 
-			uint64_t p = line ^ newLine;
+			uint64_t p = line ^ newLine;	//紀錄有變化的格子
 			int x = 1;
 
-			while (x = __builtin_ffsll(p), x-- != 0) {
-				uint64_t bit = (x & 0x1) == 0 ? BIT_ONE : BIT_ZERO;
-				p &= p - 1;
-				x >>= 1;
+			while (x = __builtin_ffsll(p), x-- != 0) {	//取右邊第一個bit
+				//x = 偶數 = 黑格；x = 奇數 = 白格
+				uint64_t bit = (x & 0x1) == 0 ? BIT_ONE : BIT_ZERO;	
+				p &= p - 1;	//去除最低位1
+				x >>= 1;  	//計算第幾格(一格2 bit)
 
+				//找出交叉的line作為下次檢查的line
 				if (lineNum < 25) {
 					nextchk |= 0x1LL << (x + 25);
 					// printf("%d", __GET(bit,0));
@@ -139,6 +147,7 @@ int propagate(LineSolve& ls, Board& board) {
 	return SOLVED;
 }
 
+//bottom up
 int fixBU(LineSolve& ls, int lineNum, const uint64_t& line, int j,
           uint64_t& newLine) {
 	const int i = 26;
@@ -177,24 +186,25 @@ int fixBU(LineSolve& ls, int lineNum, const uint64_t& line, int j,
 	newLine = dpTable[j][i];
 	return dpTable[j][i] == 0 ? LS_NO : LS_YES;
 }
+
 // Logic Rule
 int RLmost_init(LineSolve& ls, Board& board) {
 	for (int lineNum = 0; lineNum < 50; ++lineNum) {
 		uint64_t line = getLine(board, lineNum);
-		uint64_t newLine = ((0x1LL << 50) - 0x1LL);
+		uint64_t newLine = ((0x1LL << 50) - 0x1LL);	
 		int j = ls.clue[lineNum].count;
 
 		int shift = 0;
-		int totaClue = 0;
+		int totalClue = 0;
 		for (int i = 0; i < j; i++) {
-			totaClue += ls.clue[lineNum].num[i];
+			totalClue += ls.clue[lineNum].num[i];
 		}
-		totaClue = totaClue + j - 1;
-		shift = 25 - totaClue;
+		totalClue = totalClue + j - 1;
+		shift = 25 - totalClue;
 		int point = shift;
 		for (int i = 0; i < j; i++) {
 			if (shift < ls.clue[lineNum].num[i]) {
-				int paint = ls.clue[lineNum].num[i] - shift;
+				int paint = ls.clue[lineNum].num[i] - shift;	//一定交集的黑格數
 				for (int p = point; p < paint + point; p++) {
 					if (__GET(line, p) == BIT_ZERO) {
 						return CONFLICT;
@@ -205,6 +215,7 @@ int RLmost_init(LineSolve& ls, Board& board) {
 			point += ls.clue[lineNum].num[i];
 			point++;
 		}
+		//更新對應的行/列
 		for (int i = 0; i < 25; i++) {
 			if (__GET(line, i) != __GET(board.data[lineNum], i)) {
 				if (lineNum < 25) {
@@ -240,19 +251,21 @@ int logicSolve(LineSolve& ls, Board& board) {
 int left[25], right[25];
 
 int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
+	//initialize unknown
 	for (int i = 0; i < 25; i++) {
 		left[i] = 2;
 		right[i] = 2;
 	}
-	int j = ls.clue[lineNum].count;
-	int finish = 0, start = 0, k, currentClue = 0;
+	int j = ls.clue[lineNum].count;	//這行的線索數量
+	int finish = 0, start = 0, k, currentClue = 0;	
 	bool error;
 	while (finish != SOLVED) {
+		//計算從當前線索到最後一個線索需要的總長度
 		int total = 0;
 		for (int i = currentClue; i < j; i++) {
 			total += ls.clue[lineNum].num[i];
 		}
-		total += j - currentClue - 1;
+		total += j - currentClue - 1;	//加上間隔的空格
 
 		// CONFLICT RULE
 		// 從當前 index 開始放置線索會超出範圍時，代表 CONFLICT
@@ -264,6 +277,7 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 		if (state == CONFLICT) return CONFLICT;
 		finish = SOLVED;
 
+		//檢查已填的黑格是否合法
 		for (int i = 0; i < 25; i++) {
 			if (__GET(line, i) == BIT_ONE) {
 				for (k = j - 1; k > 0; k--) {
@@ -289,7 +303,7 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 
 	for (int i = 0; i < j; i++) {
 		for (int k = ls.lft[i].h; k <= ls.lft[i].t; k++) {
-			left[k] = i + 3;
+			left[k] = i + 3;	// 記錄每個位置屬於哪個線索
 		}
 	}
 
@@ -343,28 +357,32 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 	for (int i = 0; i < j; i++) {
 		int clue = i + 3;
 		cl = 0, cr = 0;
+		int clueNum = ls.clue[lineNum].num[i];
 		for (int k = from; k < 25; k++) {
 			if (left[k] == clue) {
 				cl++;
-				if (cl == ls.clue[lineNum].num[i]) from = k;
+				if (cl == clueNum) from = k;
 			}
 			if (right[k] == clue) {
 				cr++;
 			}
-			if (cl > ls.clue[lineNum].num[i] || cr > ls.clue[lineNum].num[i]) {
+			if (cl > clueNum || cr > clueNum) {
 				return CONFLICT;
 			}
-			if (left[k] > clue && cl < ls.clue[lineNum].num[i] ||
-			    right[k] > clue && cr < ls.clue[lineNum].num[i]) {
+			if (left[k] > clue && cl < clueNum ||
+			    right[k] > clue && cr < clueNum) {
 				return CONFLICT;
 			}
 		}
+
+		
 		// CONFLICT RULE
 		// 線索對應錯誤，代表 CONFLICT
-		if (cl < ls.clue[lineNum].num[i] || cr < ls.clue[lineNum].num[i]) {
+		if (cl < clueNum || cr < clueNum) {
 			return CONFLICT;
 		}
 	}
+	
 	return SOLVED;
 }
 
@@ -374,16 +392,17 @@ int leftmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
 	// if(lineNum == 27)
 	// printf("start = %d, currentClue = %d\n", start, c);
 	for (int i = start; i < 25, c < j; i++) {
-		if (i == 24 && c < j - 1) {
+		if (i == 24 && c < j - 1) {	//到最後一格了但還有線索沒處理
 			return CONFLICT;
 		}
 		bool error = false;
+		//檢查當前位置前後是否有黑格
 		if (i - 1 >= 0 && __GET(line, i - 1) == BIT_ONE ||
 		    i + ls.clue[lineNum].num[c] < 25 &&
 		        __GET(line, i + ls.clue[lineNum].num[c]) == BIT_ONE) {
 			continue;
 		}
-
+		//檢查從i開始的連續格子是否都不是白格
 		for (int k = i; k < i + ls.clue[lineNum].num[c]; k++) {
 			if (__GET(line, k) == BIT_ZERO) {
 				error = true;
@@ -403,6 +422,7 @@ int leftmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
 		}
 	}
 }
+
 int rightmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
               int c) {
 	int j = ls.clue[lineNum].count;

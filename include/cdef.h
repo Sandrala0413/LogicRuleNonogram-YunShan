@@ -19,7 +19,7 @@
 #include <nmmintrin.h>
 #endif
 
-#define likely(x) __builtin_expect(!!(x), 1)
+#define likely(x) __builtin_expect(!!(x), 1)	//x = any boolean expression
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
 // program parameter
@@ -47,10 +47,12 @@
 	for (size_t x = 0; x < 25; ++x) \
 		for (size_t y = 0; y < 25; ++y)
 
+// n = 初始值 m = 變數 b = 數據內容
+// m << 1 = m*2(因為一格佔2bit)
 #define __GET(n, m) ((n >> (m << 1)) & 0x3LL)
 #define __SET(n, m, b)                \
 	(n = (n & ~(0x3LL << (m << 1))) | \
-	     (((uint64_t)(b)) << (m << 1))) // n = 初始值 m = 變數 b = 數據內容
+	     (((uint64_t)(b)) << (m << 1))) 
 // fot test
 #define __SE(n, m, b) __SET(n, m, b)
 // #define __SE(n,m,b) (n&~(b<<(m<<1)))
@@ -68,8 +70,9 @@ enum State { CONFLICT = -1, INCOMP = 0, SOLVED = 1 };
 #define BOTH_U 3
 
 // for readable
-#define FILL ((0x1LL << 50) - 0x1LL)
-#define MEMSET_ZERO(arr) (memset(arr, 0, sizeof(arr)))
+#define FILL ((0x1LL << 50) - 0x1LL)	//50個1
+#define MEMSET_ZERO(arr) (memset(arr, 0, sizeof(arr)))	//清空陣列
+
 
 // use in fix
 #define LS_NANS 0

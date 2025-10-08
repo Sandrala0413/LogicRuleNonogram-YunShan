@@ -1,6 +1,6 @@
 #include "probsolver.h"
 
-#define FIRST_FP
+#define FIRST_PROPAGATE
 
 int NonogramSolver::doSolve(int* data, int probN) {
 	FILE* out;

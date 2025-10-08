@@ -111,6 +111,7 @@ int main(int argc, char* argv[]) {
 	clock_t totalTIME = 0;
 
 	nngSolver.propagationTime = 0;
+	//逐題解題
 	for (int probN = option.problemStart; probN <= option.problemEnd; ++probN) {
 		getData(inputData, probN, probData);
 
