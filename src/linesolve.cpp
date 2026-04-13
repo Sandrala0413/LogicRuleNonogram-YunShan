@@ -1,8 +1,10 @@
 #include "linesolve.h"
+#include <fstream>
 
 #include <stdlib.h>
 
 #include <cstdio>
+#include <queue>
 
 // 0x1 = 01 = blank(ZERO)
 // 0x2 = 10 = fill(ONE)
@@ -228,6 +230,7 @@ int RLmost_init(LineSolve& ls, Board& board) {
 		board.data[lineNum] = line;
 	}
 	memcpy(board.oldData, board.data, sizeof(board.oldData));
+	// printf("RLmost_init pixel: %d\n", debugBoard(board));
 	if (unlikely(getSize(board) != 625)) return INCOMP;
 	ls.solvedBoard = board;
 	return SOLVED;
@@ -248,15 +251,17 @@ int logicSolve(LineSolve& ls, Board& board) {
 	ls.solvedBoard = board;
 	return SOLVED;
 }
+
 int left[25], right[25];
 
+//找出每個線索可能的最左和最右位置
 int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 	//initialize unknown
-	for (int i = 0; i < 25; i++) {
-		left[i] = 2;
-		right[i] = 2;
-	}
+	std::fill(left, left + 25, 2);
+	std::fill(right, right + 25, 2);
+
 	int j = ls.clue[lineNum].count;	//這行的線索數量
+	
 	int finish = 0, start = 0, k, currentClue = 0;	
 	bool error;
 	while (finish != SOLVED) {
@@ -280,7 +285,9 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 		//檢查已填的黑格是否合法
 		for (int i = 0; i < 25; i++) {
 			if (__GET(line, i) == BIT_ONE) {
+				//第一種：黑格在兩個線索之間
 				for (k = j - 1; k > 0; k--) {
+					//如果黑格在第k個線索的開頭和第k-1個線索的結尾之間->CONFLICT
 					if (ls.lft[k].h > i && ls.lft[k - 1].t < i) {
 						// printf("lft[%d].h = %d, lft[%d].t = %d\n", k,
 						// ls.lft[k].h, k-1, ls.lft[k-1].t);
@@ -288,11 +295,14 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 						break;
 					}
 				}
+				//第二種：黑格在最後一個線索之後
 				if (ls.lft[j - 1].t < i) {
 					finish = CONFLICT;
 					k = j;
 				}
+				//如果發生衝突
 				if (finish == CONFLICT) {
+					//從衝突處重新開始
 					start = ls.lft[k - 1].h + 1;
 					currentClue = k - 1;
 					break;
@@ -303,7 +313,7 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 
 	for (int i = 0; i < j; i++) {
 		for (int k = ls.lft[i].h; k <= ls.lft[i].t; k++) {
-			left[k] = i + 3;	// 記錄每個位置屬於哪個線索
+			left[k] = i + 3;	// 標記位置k屬於線索i
 		}
 	}
 
@@ -352,47 +362,21 @@ int RLmost(LineSolve& ls, int lineNum, const uint64_t& line) {
 			right[k] = i + 3;
 		}
 	}
-
-	int from = 0, cl, cr;
-	for (int i = 0; i < j; i++) {
-		int clue = i + 3;
-		cl = 0, cr = 0;
-		int clueNum = ls.clue[lineNum].num[i];
-		for (int k = from; k < 25; k++) {
-			if (left[k] == clue) {
-				cl++;
-				if (cl == clueNum) from = k;
-			}
-			if (right[k] == clue) {
-				cr++;
-			}
-			if (cl > clueNum || cr > clueNum) {
-				return CONFLICT;
-			}
-			if (left[k] > clue && cl < clueNum ||
-			    right[k] > clue && cr < clueNum) {
-				return CONFLICT;
-			}
-		}
-
-		
-		// CONFLICT RULE
-		// 線索對應錯誤，代表 CONFLICT
-		if (cl < clueNum || cr < clueNum) {
-			return CONFLICT;
-		}
-	}
 	
 	return SOLVED;
 }
 
+//找到每個線索可能的最左側位置
 int leftmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
              int c) {
 	int j = ls.clue[lineNum].count;
 	// if(lineNum == 27)
 	// printf("start = %d, currentClue = %d\n", start, c);
-	for (int i = start; i < 25, c < j; i++) {
+	for (int i = start; i < 25 && c < j; i++) {
+		// clue 從 i 開始放超出格子範圍，後面更不可能放下，直接 CONFLICT
+		if (i + ls.clue[lineNum].num[c] > 25) break;
 		if (i == 24 && c < j - 1) {	//到最後一格了但還有線索沒處理
+			// ls.conflict3++;
 			return CONFLICT;
 		}
 		bool error = false;
@@ -410,6 +394,7 @@ int leftmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
 			}
 		}
 
+		//紀錄連續黑格的起始、結束位置
 		if (!error) {
 			ls.lft[c].h = i;
 			ls.lft[c].t = i + ls.clue[lineNum].num[c] - 1;
@@ -421,14 +406,19 @@ int leftmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
 			if (c == j) return SOLVED;
 		}
 	}
+	// 掃完 [start,24] 仍無法放下所有線索 = 真正的 CONFLICT
+	return CONFLICT;
 }
 
 int rightmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
               int c) {
 	int j = ls.clue[lineNum].count;
 	// printf("start = %d, currentClue = %d\n", start, c);
-	for (int i = start; i >= 0, c >= 0; i--) {
+	for (int i = start; i >= 0 && c >= 0; i--) {
+		// clue 從 i 往左放超出格子範圍，後面更不可能放下，直接 CONFLICT
+		if (i - ls.clue[lineNum].num[c] + 1 < 0) break;
 		if (i == 0 && c > 0) {
+			// ls.conflict4++;
 			return CONFLICT;
 		}
 		bool error = false;
@@ -454,485 +444,500 @@ int rightmost(LineSolve& ls, int lineNum, const uint64_t& line, int start,
 			if (c == -1) return SOLVED;
 		}
 	}
+	// 掃完 [0,start] 仍無法放下所有線索 = 真正的 CONFLICT
+	return CONFLICT;
 }
-int logicRule(LineSolve& ls, Board& board) {
-	for (int lineNum = 0; lineNum < 50; ++lineNum) {
-		if (ls.change[lineNum] != 1) {
-			continue;
-		}
-		uint64_t line = getLine(board, lineNum);
-		// uint64_t newLine = ( ( 0x1LL << 50 ) - 0x1LL );
-		int j = ls.clue[lineNum].count;
 
-		int state = RLmost(ls, lineNum, line);
+// 優化函數：計算每個線索的範圍（規則 2/4/5）
+int computeClueScope(LineSolve& ls, int lineNum, int* scope_head, 
+                     int* scope_tail, uint16_t& sh_cont, uint16_t& st_cont) {
+	int j = ls.clue[lineNum].count;
+	sh_cont = 0;
+	st_cont = 0;
 
-		if (state == CONFLICT) {
-			return CONFLICT;
-		}
-
-		// 規則 2 4 5
-		/*
-		計算每個提示的範圍
-		**範例**
-		提示 -> 2 2
-		行 : x x 1 x x x x 1 x x
-		左 : x 3 3 x x x 4 4 x x
-		右 : x x 3 3 x x x 4 4 x
-
-		計算每個提示的起點和終點
-		scope_head[0] = 1
-		scope_tail[0] = 3
-		scope_head[1] = 6
-		scope_tail[1] = 8
-		---------------------------------
-		將範圍內的空格設為0
-		最終: 0 x 1 x 0 0 x 1 x 0
-		*/
-		int scope_head[j], scope_tail[j], sh_cont[j], st_cont[j], cont = 0;
-		int final[25];
-
-		for (int i = 0; i < j; i++) {
-			scope_head[i] = 0;
-			scope_tail[i] = 0;
-			sh_cont[i] = 0;
-			st_cont[i] = 0;
-		}
-		for (int i = 0; i < 25; i++) {
-			final[i] = 0;
-		}
-
-		// find the scope of each clue
-		for (int i = 0; i < 25; i++) {
-			if (left[i] > 2 && !sh_cont[left[i] - 3]) {
-				scope_head[left[i] - 3] = i;
-				sh_cont[left[i] - 3] = 1;
-			}
-			if (right[25 - i - 1] > 2 && !st_cont[right[25 - i - 1] - 3]) {
-				scope_tail[right[25 - i - 1] - 3] = 25 - i - 1;
-				st_cont[right[25 - i - 1] - 3] = 1;
+	std::fill_n(scope_head, 14, 0);
+	std::fill_n(scope_tail, 14, 0);
+	
+	// find the scope of each clue - 優化：只掃一遍 + 位運算
+	for (int i = 0; i < 25; i++) {
+		if (left[i] > 2) {
+			int left_idx = left[i] - 3;
+			if (!(sh_cont & (1 << left_idx))) {
+				scope_head[left_idx] = i;
+				sh_cont |= (1 << left_idx);
 			}
 		}
-		int this_clue, cont_t = 0, cont_h = 0;
+		
+		if (right[25 - i - 1] > 2) {
+			int right_idx = right[25 - i - 1] - 3;
+			if (!(st_cont & (1 << right_idx))) {
+				scope_tail[right_idx] = 25 - i - 1;
+				st_cont |= (1 << right_idx);
+			}
+		}
+	}
+	
+	return SOLVED;
+}
 
-		for (int i = 0; i < j; i++) {
-			this_clue = ls.clue[lineNum].num[i];
-			for (int k = scope_head[i]; k <= scope_tail[i] - this_clue + 1;
-			     k++) {
-				cont = 0, cont_t = 0, cont_h = 0;
-				for (int z = 0; z < this_clue; z++) {
-					if (__GET(line, k + z) == BIT_ZERO) {
-						cont = 1;
-						break;
+// 優化函數：應用規則 1_5（提示範圍內的黑格合併）
+int applyRule1_5(LineSolve& ls, int lineNum, uint64_t& line, 
+                 const int* scope_head, const int* scope_tail, 
+                 int hPSeg, const int* hPSeg_head, const int* hPSeg_tail) {
+	int j = ls.clue[lineNum].count;
+	int final[25];
+	std::fill_n(final, 25, 2);
+	
+	// 規則1_5主邏輯
+	for (int i = 0; i < hPSeg; i++) {
+		for (int k = 0; k < j; k++) {
+			int this_clue = ls.clue[lineNum].num[k];
+			
+			if (scope_head[k] <= hPSeg_head[i] && scope_tail[k] >= hPSeg_tail[i]) {
+				// 計算有效範圍
+				int h = (scope_tail[k] - this_clue + 1 >= scope_head[k]) ? 
+					(scope_tail[k] - this_clue + 1) : scope_head[k];
+				int t = (scope_head[k] + this_clue - 1 <= scope_tail[k]) ? 
+					(scope_head[k] + this_clue - 1) : scope_tail[k];
+				
+				// 內層迴圈
+				for (int z = h; z <= t - this_clue + 1; z++) {
+					bool cont_check = false;
+					for (int zz = z; zz < z + this_clue; zz++) {
+						if (__GET(line, zz) == BIT_ZERO) {
+							cont_check = true;
+							break;
+						}
 					}
-				}
-				if (k + this_clue < 25 &&
-				    __GET(line, k + this_clue) == BIT_ONE) {
-					cont_t = 1;
-				}
-				if (k - 1 >= 0 && __GET(line, k - 1) == BIT_ONE) {
-					cont_h = 1;
-				}
-				if (!cont && !cont_t && !cont_h) {
-					for (int z = 0; z < this_clue; z++) {
-						final[k + z] = 1;
-					}
-				}
-			}
-		}
-
-		// Conflict Rule
-		for (int i = 0; i < 25; i++) {
-			if (final[i] == 0) {
-				if (__GET(line, i) == BIT_ONE) return CONFLICT;
-				if (__GET(line, i) == BIT_UNKNOWN) __SET(line, i, BIT_ZERO);
-			}
-		}
-
-		// 規則1_5
-		/*
-		計算每個提示的範圍
-		**範例**
-		提示 -> 3 4
-		行 : x x x 0 x 1 x x x x x x x
-		左 : 3 3 3 0 4 4 4 4 x x x x x
-		右 : x x x 0 x 3 3 3 x 4 4 4 4
-		終:  x x x 0 x 1 1 x x x x x x
-
-		計算提示的範圍
-		hPSeg_head[0] = 5
-		hPSeg_tail[0] = 5
-		hPSeg_len[0] = 1
-
-		將範圍內的空格設為1
-		(如果範圍內有0，則設為0)
-		最終: x x x 0 1 1 1 0 x x x x x
-		最終: x x x 0 0 1 1 0 x x x x x
-		最終: x x x 0 0 1 1 0 0 x x x x
-		最終: x x x 0 0 1 1 0 0 x x x x
-		---------------------------------
-		將範圍內的空格設為1
-		最終: x x x 0 x 1 1 x x x x x x
-		*/
-		int hPSeg = 0;
-		int hPSeg_head[13];
-		int hPSeg_tail[13];
-		int hPSeg_len[13];
-
-		// init array
-		for (int i = 0; i < 13; i++) {
-			hPSeg_head[i] = 0;
-			hPSeg_tail[i] = 0;
-			hPSeg_len[i] = 0;
-		}
-		cont = 0;
-		for (int i = 0; i < 25; i++) {
-			if (__GET(line, i) == BIT_ONE && !cont) {
-				hPSeg_head[hPSeg] = i;
-				cont = 1;
-			} else if (__GET(line, i) != BIT_ONE && cont) {
-				hPSeg_tail[hPSeg] = i - 1;
-				hPSeg_len[hPSeg] = i - hPSeg_head[hPSeg];
-				hPSeg++;
-				cont = 0;
-			} else if (i + 1 == 25 && cont) {
-				hPSeg_tail[hPSeg] = i;
-				hPSeg_len[hPSeg] = i - hPSeg_head[hPSeg] + 1;
-				hPSeg++;
-				cont = 0;
-			}
-		}
-
-		for (int i = 0; i < 25; i++) {
-			final[i] = 2;
-		}
-
-		int h = 0, t = 0;
-		for (int i = 0; i < hPSeg; i++) {
-			for (int k = 0; k < j; k++) {
-				this_clue = ls.clue[lineNum].num[k];
-				if (scope_head[k] <= hPSeg_head[i] &&
-				    scope_tail[k] >= hPSeg_tail[i]) {
-					if (scope_tail[k] - this_clue + 1 >= scope_head[k]) {
-						h = scope_tail[k] - this_clue + 1;
-					} else {
-						h = scope_head[k];
-					}
-					if (scope_head[k] + this_clue - 1 <= scope_tail[k]) {
-						t = scope_head[k] + this_clue - 1;
-					} else {
-						t = scope_tail[k];
-					}
-					for (int z = h; z <= t - this_clue + 1; z++) {
-						cont = false;
+					if (!cont_check) {
+						if (z > 0) final[z - 1] = 0;
+						if (z + this_clue < 25) final[z + this_clue] = 0;
 						for (int zz = z; zz < z + this_clue; zz++) {
-							if (__GET(line, zz) == BIT_ZERO) cont = true;
-						}
-						if (!cont) {
-							final[z - 1] = 0;
-							final[z + this_clue] = 0;
-							for (int zz = z; zz < z + this_clue; zz++) {
-								if (final != 0) final[zz] = 1;
-							}
+							if (final[zz] != 0) final[zz] = 1;
 						}
 					}
 				}
 			}
 		}
-
-		// merge
-		for (int i = 0; i < 25; i++) {
-			if (__GET(line, i) == BIT_UNKNOWN && final[i] == 1) {
-				__SET(line, i, BIT_ONE);
-				// cau
-				// board.rule[7]++;
-				// num_s=1;
-			}
-		}
-
-		for (int i = 0; i < 25; i++) {
-			final[i] = 2;
-		}
-
-		// 規則 2 4 5的合併(檢查前後提示的範圍)
-		for (int i = 0; i < hPSeg; i++) {
-			if (right[hPSeg_head[i]] != left[hPSeg_head[i]]) {
-				int dh = right[hPSeg_head[i]] - 3, dt = left[hPSeg_head[i]] - 3;
-				if (dt - dh == 1 &&
-				    (dh > 0 && ls.lft[dh - 1].h == ls.rght[dh - 1].h ||
-				     dh == 0)) {
-					Pixel ll[2];
-					for (int k = ls.lft[dh].h; k <= ls.rght[dh].h; k++) {
-						if ((k - 1 >= 0 && __GET(line, k - 1) == BIT_ONE) ||
-						    (k + ls.clue[lineNum].num[dh] < 25 &&
-						     __GET(line, k + ls.clue[lineNum].num[dh]) ==
-						         BIT_ONE)) {
-							continue;
-						}
-						for (int m = ls.lft[dt].h; m <= ls.rght[dt].h; m++) {
-							bool error = false;
-							if ((m - 1 >= 0 && __GET(line, m - 1) == BIT_ONE) ||
-							    (m + ls.clue[lineNum].num[dt] < 25 &&
-							     __GET(line, m + ls.clue[lineNum].num[dt]) ==
-							         BIT_ONE) ||
-							    (k + ls.clue[lineNum].num[dh] == m) ||
-							    (hPSeg_tail[i] < k ||
-							     (hPSeg_head[i] >=
-							          k + ls.clue[lineNum].num[dh] &&
-							      hPSeg_tail[i] < m) ||
-							     hPSeg_head[i] >=
-							         m + ls.clue[lineNum].num[dt])) {
-								continue;
-							}
-							for (int d = k; d < k + ls.clue[lineNum].num[dh];
-							     d++) {
-								if (__GET(line, d) == BIT_ZERO) {
-									error = true;
-									break;
-								}
-							}
-							for (int d = m; d < m + ls.clue[lineNum].num[dt];
-							     d++) {
-								if (__GET(line, d) == BIT_ZERO) {
-									error = true;
-									break;
-								}
-							}
-							if (!error) {
-								for (int d = k;
-								     d < k + ls.clue[lineNum].num[dh]; d++) {
-									final[d] = 1;
-								}
-								for (int d = m;
-								     d < m + ls.clue[lineNum].num[dt]; d++) {
-									final[d] = 1;
-								}
-							}
-						}
-					}
-
-					for (int k = ls.lft[dh].h; k <= ls.rght[dh].t; k++) {
-						if (__GET(line, k) == BIT_UNKNOWN && final[k] == 2) {
-							__SET(line, k, BIT_ZERO);
-						}
-					}
-				}
-			}
-		}
-
-		// 規則1
-		/*
-		每個提示的範圍
-		**範例**
-		提示 -> 3 4
-		行 : x 1 x x x x x x 1 x
-		左 : 3 3 3 x x 4 4 4 4 x
-		右 : x 3 3 3 x x 4 4 4 4
-		終 : x 1 1 x x x 1 1 1 x
-		*/
-		for (int i = 0; i < j; i++) {
-			for (int k = ls.lft[i].t; k >= ls.rght[i].h; k--) {
-				if (__GET(line, k) == BIT_ZERO)
-					return CONFLICT;
-				else
-					__SET(line, k, BIT_ONE);
-			}
-		}
-
-		// 規則3
-		/*
-		計算每個段落的範圍
-		**範例**
-		提示 -> 2 4
-		行 : x x 0 1 x x x x x x
-		左 : 3 3 x 4 4 4 4 x x x
-		右 : x x x 3 3 x 4 4 4 4
-		終 : x x 0 1 1 x x x x x
-
-		計算每個段落的範圍
-		differ[0] = 2 (01 段落的開始)
-		seg_place[0] = 3
-		seg_len[0] = 2
-
-		計算最小提示
-		min_clue = 2
-		---------------------------
-		最終: x x 0 1 1 x x x x x
-		*/
-		int seg_len[j + 1];
-		int seg_place[j + 1];
-		int segment = 0;
-		int differ[j + 1];
-		for (int i = 0; i < j + 1; i++) {
-			seg_len[i] = 0;
-			seg_place[i] = 0;
-			differ[i] = 0;
-		}
-		cont = 0;
-		for (int i = 1; i < 24; i++) {
-			if (__GET(line, i) == BIT_ZERO) {
-				if (__GET(line, i - 1) == BIT_ONE && cont == 0) {
-					differ[segment] = 1; // 10
-					for (int k = i; k > 0; k--) {
-						if (__GET(line, k - 1) != BIT_ONE) {
-							seg_place[segment] = k;
-							break;
-						} else if (k == 1) {
-							seg_place[segment] = 0;
-						}
-					}
-					seg_len[segment] = i - seg_place[segment];
-					segment++;
-				}
-				if (__GET(line, i + 1) == BIT_ONE) {
-					cont = 1;
-					differ[segment] = 2; // 01
-					seg_place[segment] = i + 1;
-					for (int k = i; k < 24; k++) {
-						if (__GET(line, k + 1) != BIT_ONE) {
-							seg_len[segment] = k - seg_place[segment] + 1;
-							break;
-						} else if (k == 23) {
-							seg_len[segment] = 25 - seg_place[segment];
-							break;
-						}
-					}
-					segment++;
-				}
-			} else if (__GET(line, i) == BIT_UNKNOWN && cont == 1) {
-				cont = 0;
-			}
-		}
-		for (int i = 0; i < segment; i++) {
-			int min_clue = 24, head = 0, tail = 0;
-			if (differ[i] == 1) { // 10
-				for (int k = right[seg_place[i]] - 3;
-				     k <= left[seg_place[i]] - 3; k++) {
-					if (ls.clue[lineNum].num[k] < min_clue) {
-						min_clue = ls.clue[lineNum].num[k];
-					}
-				}
-				tail = seg_place[i] + seg_len[i] - 1;
-				head = tail - min_clue + 1;
-				cont = 0;
-				for (int k = tail; k >= head; k--) {
-					if (__GET(line, k) == BIT_ZERO) {
-						cont = 1;
-						break;
-					}
-				}
-				if (cont == 0) {
-					for (int k = head; k <= tail; k++) {
-						if (__GET(line, k) == BIT_ZERO) {
-							return CONFLICT;
-						} else
-							__SET(line, k, BIT_ONE);
-					}
-				}
-			} else if (differ[i] == 2) { // 01
-				for (int k = right[seg_place[i]] - 3;
-				     k <= left[seg_place[i]] - 3; k++) {
-					if (ls.clue[lineNum].num[k] < min_clue) {
-						min_clue = ls.clue[lineNum].num[k];
-					}
-				}
-				head = seg_place[i];
-				tail = seg_place[i] + min_clue - 1;
-				cont = 0;
-				for (int k = head; k <= tail; k++) {
-					if (__GET(line, k) == BIT_ZERO) {
-						cont = 1;
-						break;
-					}
-				}
-				if (cont == 0) {
-					for (int k = head; k <= tail; k++) {
-						if (__GET(line, k) == BIT_ZERO) {
-							return CONFLICT;
-						} else
-							__SET(line, k, BIT_ONE);
-					}
-				}
-			}
-		}
-
-		// EXTRA_PLUS
-		/*
-		檢查額外的規則
-		**範例**
-		提示 -> 3 1 1
-		行 : x x x 0 1 x x x x 0 1
-		左 : 3 3 3 x 4 x x x x x 5
-		右 : x x x x 3 3 3 x 4 x 5
-		終 : x x x 0 1 x x 0 x 0 1
-
-		計算提示的範圍
-		dh = 0
-		dt = 1
-
-		檢查dh和dt之間的範圍，並確定dh到dt之間的空格
-		檢查dt是否在範圍內，並確定下一個位置是否固定
-		-----------------------------
-		將段落內的空格設為1，並確定dh到dt之間的範圍
-		       x x x 0 1 1 1 x x 0 1
-		最終結果
-		final: x x x 0 1 x x 0 x 0 1
-		*/
-		for (int i = segment - 1; i >= 0; i--) {
-			int stop = 0;
-			if (differ[i] == 2) { // 01
-				int len = 0;
-				// find len
-				for (int k = seg_place[i] + seg_len[i]; k < 25; k++) {
-					if (__GET(line, k) != BIT_UNKNOWN)
-						len++;
-					else if (__GET(line, k) != BIT_UNKNOWN) {
-						stop = 1;
-						break;
-					}
-				}
-				if (stop) break;
-				len += seg_len[i];
-				int dh = right[seg_place[i]] - 3, dt = left[seg_place[i]] - 3;
-				if (dt - dh == 1 &&
-				    ls.clue[lineNum].num[dt] <= ls.clue[lineNum].num[dh] &&
-				    seg_len[i] != ls.clue[lineNum].num[dh]) {
-					if (dt == j - 1 || (dt != j - 1 && ls.rght[dt + 1].h ==
-					                                       ls.lft[dt + 1].h)) {
-						__SET(line, seg_place[i] + ls.clue[lineNum].num[dh],
-						      BIT_ZERO);
-					}
-				}
-			}
-		}
-
-		int hasN = 0;
-		for (int i = 0; i < 25; i++) {
-			if (__GET(line, i) != __GET(board.data[lineNum], i)) {
-				if (lineNum < 25) {
-					__SET(board.data[i + 25], lineNum, __GET(line, i));
-					ls.change[i + 25] = 1;
-				} else {
-					__SET(board.data[i], (lineNum - 25), __GET(line, i));
-					ls.change[i] = 1;
-				}
-				hasN = 1;
-			}
-		}
-		if (hasN == 1)
-			ls.change[lineNum] = 1;
-		else
-			ls.change[lineNum] = 0;
-
-		board.data[lineNum] = line;
 	}
 
+	// 應用合併結果
+	for (int i = 0; i < 25; i++) {
+		if (__GET(line, i) == BIT_UNKNOWN && final[i] == 1) {
+			__SET(line, i, BIT_ONE);
+		}
+	}
+	
+	return SOLVED;
+}
+
+// 優化函數：應用規則 3（段落邊界推理）
+int applyRule3(LineSolve& ls, int lineNum, uint64_t& line, int j) {
+	int seg_len[j+1] = {0};      // 直接初始化
+	int seg_place[j+1] = {0};
+	int segment = 0;
+	int differ[j+1] = {0};
+
+	int cont = 0;
+	for (int i = 1; i < 24; i++) {
+		uint64_t curr = __GET(line, i);
+		uint64_t prev = __GET(line, i - 1);
+		uint64_t next = __GET(line, i + 1);
+		
+		if (curr == BIT_ZERO) {
+			if (prev == BIT_ONE && cont == 0) {
+				differ[segment] = 1; // 10
+				for (int k = i; k > 0; k--) {
+					if (__GET(line, k - 1) != BIT_ONE) {
+						seg_place[segment] = k;
+						break;
+					} else if (k == 1) {
+						seg_place[segment] = 0;
+					}
+				}
+				seg_len[segment] = i - seg_place[segment];
+				segment++;
+			}
+			if (next == BIT_ONE) {
+				cont = 1;
+				differ[segment] = 2; // 01
+				seg_place[segment] = i + 1;
+				for (int k = i; k < 24; k++) {
+					if (__GET(line, k + 1) != BIT_ONE) {
+						seg_len[segment] = k - seg_place[segment] + 1;
+						break;
+					} else if (k == 23) {
+						seg_len[segment] = 25 - seg_place[segment];
+						break;
+					}
+				}
+				segment++;
+			}
+		} else if (curr == BIT_UNKNOWN && cont == 1) {
+			cont = 0;
+		}
+	}
+	
+	// 處理每個段落
+	for (int i = 0; i < segment; i++) {
+		int min_clue = 24;
+		if (differ[i] == 1) { // 10
+			// 由 left/right 反推 clue index，需先檢查合法範圍
+			if (right[seg_place[i]] <= 2 || left[seg_place[i]] <= 2) continue;
+			int right_idx = right[seg_place[i]] - 3;
+			int left_idx  = left[seg_place[i]] - 3;
+			if (right_idx < 0 || left_idx < 0 || right_idx >= j || left_idx >= j || right_idx > left_idx) {
+				continue;
+			}
+			// 優化：提前計算最小值（k 介於 right_idx..left_idx）
+			for (int k = right_idx; k <= left_idx; k++) {
+				int clue_val = ls.clue[lineNum].num[k];
+				if (clue_val < min_clue) {
+					min_clue = clue_val;
+				}
+			}
+			int tail = seg_place[i] + seg_len[i] - 1;
+			int head = tail - min_clue + 1;
+			
+			int cont_check = 0;
+			for (int k = tail; k >= head; k--) {
+				if (__GET(line, k) == BIT_ZERO) {
+					cont_check = 1;
+					break;
+				}
+			}
+			
+			if (cont_check == 0) {
+				for (int k = head; k <= tail; k++) {
+					if (__GET(line, k) == BIT_ZERO) {
+						return CONFLICT;
+					} else {
+						__SET(line, k, BIT_ONE);
+					}
+				}
+			}
+		} else if (differ[i] == 2) { // 01
+				if (right[seg_place[i]] <= 2 || left[seg_place[i]] <= 2) continue;
+				int right_idx = right[seg_place[i]] - 3;
+				int left_idx  = left[seg_place[i]] - 3;
+				if (right_idx < 0 || left_idx < 0 || right_idx >= j || left_idx >= j || right_idx > left_idx) {
+					continue;
+				}
+				for (int k = right_idx; k <= left_idx; k++) {
+					int clue_val = ls.clue[lineNum].num[k];
+				if (clue_val < min_clue) {
+					min_clue = clue_val;
+				}
+			}
+			int head = seg_place[i];
+			int tail = seg_place[i] + min_clue - 1;
+			
+			int cont_check = 0;
+			for (int k = head; k <= tail; k++) {
+				if (__GET(line, k) == BIT_ZERO) {
+					cont_check = 1;
+					break;
+				}
+			}
+			
+			if (cont_check == 0) {
+				for (int k = head; k <= tail; k++) {
+					if (__GET(line, k) == BIT_ZERO) {
+						return CONFLICT;
+					} else {
+						__SET(line, k, BIT_ONE);
+					}
+				}
+			}
+		}
+	}
+	
+	return SOLVED;
+}
+
+// 優化函數：規則 2/4/5 的交叉檢查
+int applyCrossCheck(LineSolve& ls, int lineNum, uint64_t& line, 
+                    int hPSeg, const int* hPSeg_head, const int* hPSeg_tail,
+                    const int* scope_head, const int* scope_tail, int j) {
+	int final[25];
+	std::fill_n(final, 25, 2);
+	
+	// 規則 2 4 5的合併
+	for (int i = 0; i < hPSeg; i++) {
+		int dh = right[hPSeg_head[i]] - 3;
+		int dt = left[hPSeg_head[i]] - 3;
+		
+		if (right[hPSeg_head[i]] != left[hPSeg_head[i]] && 
+			dt - dh == 1 &&
+			(dh > 0 && ls.lft[dh - 1].h == ls.rght[dh - 1].h || dh == 0)) {
+			
+			int dh_clue = ls.clue[lineNum].num[dh];
+			int dt_clue = ls.clue[lineNum].num[dt];
+			
+			for (int k = ls.lft[dh].h; k <= ls.rght[dh].h; k++) {
+				if ((k > 0 && __GET(line, k - 1) == BIT_ONE) ||
+					(k + dh_clue < 25 && __GET(line, k + dh_clue) == BIT_ONE)) {
+					continue;
+				}
+				
+				for (int m = ls.lft[dt].h; m <= ls.rght[dt].h; m++) {
+					bool error = false;
+					
+					if ((m > 0 && __GET(line, m - 1) == BIT_ONE) ||
+						(m + dt_clue < 25 && __GET(line, m + dt_clue) == BIT_ONE) ||
+						(k + dh_clue == m) ||
+						(hPSeg_tail[i] < k ||
+						(hPSeg_head[i] >= k + dh_clue && hPSeg_tail[i] < m) ||
+						hPSeg_head[i] >= m + dt_clue)) {
+						continue;
+					}
+					
+					for (int d = k; d < k + dh_clue && !error; d++) {
+						error = (__GET(line, d) == BIT_ZERO);
+					}
+					for (int d = m; d < m + dt_clue && !error; d++) {
+						error = (__GET(line, d) == BIT_ZERO);
+					}
+					
+					if (!error) {
+						for (int d = k; d < k + dh_clue; d++) {
+							final[d] = 1;
+						}
+						for (int d = m; d < m + dt_clue; d++) {
+							final[d] = 1;
+						}
+					}
+				}
+			}
+
+			for (int k = ls.lft[dh].h; k <= ls.rght[dh].t; k++) {
+				if (__GET(line, k) == BIT_UNKNOWN && final[k] == 2) {
+					__SET(line, k, BIT_ZERO);
+				}
+			}
+		}
+	}
+	
+	return SOLVED;
+}
+
+std::queue<int> q;
+bool inQueue[50];
+int solveLine(LineSolve& ls, Board& board, int lineNum, uint64_t& line){
+	// printf("Solving line: %d\n", lineNum);
+	int j = ls.clue[lineNum].count;
+
+	// 記錄初始狀態
+	uint64_t line_temp = line;
+
+	// 應用 RLmost 演算法
+	int state = RLmost(ls, lineNum, line);
+	
+	if (state == CONFLICT)	return CONFLICT;
+	
+	for (int i = 0; i < 25; i++) {
+		if (__GET(line, i) != __GET(line_temp, i)) ls.RLmost_pixel++;
+	}
+	line_temp = line;
+	
+	// 計算提示範圍並應用規則 2/4/5
+	/*
+	計算每個提示的範圍
+	**範例**
+	提示 -> 2 2
+	行 : x x 1 x x x x 1 x x
+	左 : x 3 3 x x x 4 4 x x
+	右 : x x 3 3 x x x 4 4 x
+
+	計算每個提示的起點和終點
+	scope_head[0] = 1
+	scope_tail[0] = 3
+	scope_head[1] = 6
+	scope_tail[1] = 8
+	---------------------------------
+	將範圍內的空格設為0
+	最終: 0 x 1 x 0 0 x 1 x 0
+	*/
+	// if(hasUnknown){
+	int scope_head[14], scope_tail[14];
+	uint16_t sh_cont = 0, st_cont = 0;
+	computeClueScope(ls, lineNum, scope_head, scope_tail, sh_cont, st_cont);
+	
+	//規則2 4 5優化(bitmask)，減少25 * clue_length * clue_count次掃描
+	uint32_t zeroMask = 0;
+	uint32_t oneMask  = 0;
+
+	for (int i = 0; i < 25; ++i) {
+		uint64_t p = __GET(line, i);
+		if (p == BIT_ZERO) zeroMask |= (1u << i);
+		else if (p == BIT_ONE) oneMask |= (1u << i);
+	}
+
+	uint32_t finalMask = 0;
+
+	for (int i = 0; i < j; ++i) {
+		int clue = ls.clue[lineNum].num[i];
+		uint32_t clueMask = (1u << clue) - 1;
+
+		int start = scope_head[i];
+		int end   = scope_tail[i] - clue + 1;
+
+		for (int k = start; k <= end; ++k) {
+			// 這一段 [k, k+clue) 裡不能有 0
+			if (((zeroMask >> k) & clueMask) != 0) continue;
+
+			// 左右不能黏到 1
+			if (k > 0      && (oneMask & (1u << (k - 1))))   continue;
+			if (k + clue < 25 && (oneMask & (1u << (k + clue)))) continue;
+
+			finalMask |= (clueMask << k);
+		}
+	}
+
+	// 只保留 0..24 的 bit
+	uint32_t mask25 = (1u << 25) - 1;
+	uint32_t unknownMask = (~(zeroMask | oneMask)) & mask25;
+
+	// Conflict Rule：有 1 但 finalMask 為 0
+	for (int i = 0; i < 25; ++i) {
+		if ((oneMask & (1u << i)) && ((finalMask & (1u << i)) == 0)) {
+			// ls.conflict5++;
+			return CONFLICT;
+		}
+	}
+
+	// 把「UNKNOWN 且 final==0」的格子設成 0
+	uint32_t fillZero = unknownMask & ~finalMask;
+
+	for (int i = 0; i < 25; ++i) {
+		if (fillZero & (1u << i)) {
+			__SET(line, i, BIT_ZERO);
+		}
+	}
+
+	for (int i = 0; i < 25; i++) {
+		if (__GET(line, i) != __GET(line_temp, i)) ls.step_2_pixel++;
+	}
+	line_temp = line;
+	// 應用規則 1（提示交集）
+	/*
+	每個提示的範圍
+	**範例**
+	提示 -> 3 4
+	行 : x 1 x x x x x x 1 x
+	左 : 3 3 3 x x 4 4 4 4 x
+	右 : x 3 3 3 x x 4 4 4 4
+	終 : x 1 1 x x x 1 1 1 x
+	*/
+	for (int i = 0; i < j; i++) {
+		int rgh_h = ls.rght[i].h;
+		int lft_t = ls.lft[i].t;
+		
+		for (int k = lft_t; k >= rgh_h; k--) {
+			uint64_t pixel = __GET(line, k);
+			if (pixel == BIT_ZERO) {
+				return CONFLICT;
+			} else if (pixel != BIT_ZERO) {
+				__SET(line, k, BIT_ONE);
+			}
+		}
+	}
+	
+	for (int i = 0; i < 25; i++) {
+		if (__GET(line, i) != __GET(line_temp, i)) ls.step_6_pixel++;
+	}
+	line_temp = line;
+
+	// 應用規則 3（段落邊界推理）
+	/*
+	計算每個段落的範圍
+	**範例**
+	提示 -> 2 4
+	行 : x x 0 1 x x x x x x
+	左 : 3 3 x 4 4 4 4 x x x
+	右 : x x x 3 3 x 4 4 4 4
+	終 : x x 0 1 1 x x x x x
+
+	計算每個段落的範圍
+	differ[0] = 2 (01 段落的開始)
+	seg_place[0] = 3
+	seg_len[0] = 2
+
+	計算最小提示
+	min_clue = 2
+	---------------------------
+	最終: x x 0 1 1 x x x x x
+	*/
+	if(applyRule3(ls, lineNum, line, j) == CONFLICT)	return CONFLICT;
+
+	for (int i = 0; i < 25; i++) {
+		if (__GET(line, i) != __GET(line_temp, i)) ls.step_7_pixel++;
+	}
+	line_temp = line;
+
+	// 更新棋盤和變化標記
+	for (int i = 0; i < 25; i++) {
+		uint64_t old_pixel = __GET(board.data[lineNum], i);
+		uint64_t new_pixel = __GET(line, i);
+		
+		if (old_pixel != new_pixel) {
+			if (lineNum < 25) {
+
+				int col = i + 25;
+				__SET(board.data[col], lineNum, new_pixel);
+
+				if (!inQueue[col]) {
+					q.push(col);
+					inQueue[col] = true;
+				}
+
+			} else {
+
+				int row = i;
+				__SET(board.data[row], lineNum - 25, new_pixel);
+
+				if (!inQueue[row]) {
+					q.push(row);
+					inQueue[row] = true;
+				}
+			}
+		}
+	}
+
+	board.data[lineNum] = line;
+
+	return SOLVED;
+}
+
+int logicRule(LineSolve& ls, Board& board){
+	while(!q.empty())	q.pop();
+
+	for (int i = 25; i < 50; i++) {
+		inQueue[i] = false;
+	}
+
+	for (int i = 0; i < 25; i++) {
+		q.push(i);
+		inQueue[i] = true;
+	}
+
+	while (!q.empty()) {
+		int lineNum = q.front();
+		q.pop();
+		inQueue[lineNum] = false;
+		
+		uint64_t line = getLine(board, lineNum);
+		int state = solveLine(ls, board, lineNum, line);
+		if (state == CONFLICT)	return CONFLICT;
+	}
+	
+	// 檢查是否達到求解完成
 	for (int i = 0; i < 50; i++) {
-		// printf("oldData = %llu\nnewData = %llu\n", board.oldData[i],
-		// board.data[i] );
 		if (board.oldData[i] != board.data[i]) {
 			return INCOMP;
 		}
 	}
+
 	return SOLVED;
 }
 

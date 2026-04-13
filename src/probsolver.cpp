@@ -1,6 +1,6 @@
 #include "probsolver.h"
 
-#define FIRST_PROPAGATE
+// #define FIRST_PROPAGATE
 
 int NonogramSolver::doSolve(int* data, int probN) {
 	FILE* out;
@@ -69,7 +69,7 @@ int NonogramSolver::doSolve(int* data, int probN) {
 		// printLog("dfs times", times);
 	}
 	pixel = debugBoard(ls.solvedBoard);
-
+	TotalLineSolveTime += ls.linesolvetime;
 	out = fopen("log.txt", "a+");
 	fprintf(out, "DFS times: %d\n", times);
 	fclose(out);

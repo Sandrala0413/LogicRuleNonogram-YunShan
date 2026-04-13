@@ -6,6 +6,7 @@
 #include <iostream>
 #include <queue>
 #include <vector>
+#include <windows.h>
 
 #include "options.h"
 #include "probsolver.h"
@@ -13,6 +14,8 @@
 using namespace std;
 
 void testConflictBoard(int* input_data) {
+	SetProcessAffinityMask(GetCurrentProcess(), 1);  // 1 = 只使用第一個 CPU
+	
 	clearFile("ConflictBoardsReults.txt");
 
 	FILE* in = fopen("conflict-tcga2024.txt", "r");
@@ -135,6 +138,21 @@ int main(int argc, char* argv[]) {
 		} else {
 			fprintf(out, "SOLVED\n");
 		}
+		fprintf(out, "RLmost pixel: %d\n", nngSolver.getRLmostPixel());
+		fprintf(out, "Step 2 pixel: %d\n", nngSolver.getStep2Pixel());
+		fprintf(out, "Step 4 pixel: %d\n", nngSolver.getStep4Pixel());
+		fprintf(out, "Step 5 pixel: %d\n", nngSolver.getStep5Pixel());
+		fprintf(out, "Step 6 pixel: %d\n", nngSolver.getStep6Pixel());
+		fprintf(out, "Step 7 pixel: %d\n", nngSolver.getStep7Pixel());
+		fprintf(out, "Step 8 pixel: %d\n", nngSolver.getStep8Pixel());
+		fprintf(out, "Conflict 1: %d\n", nngSolver.getConflict1());
+		fprintf(out, "Conflict 2: %d\n", nngSolver.getConflict2());
+		fprintf(out, "Conflict 3: %d\n", nngSolver.getConflict3());
+		fprintf(out, "Conflict 4: %d\n", nngSolver.getConflict4());
+		fprintf(out, "Conflict 5: %d\n", nngSolver.getConflict5());
+		// fprintf(out, "Board after step 7\n");
+		// Board temp = nngSolver.getStep7Board();
+		// printBoard("log.txt", temp, probN);
 		fclose(out);
 
 		total += debugBoard(ans);
@@ -164,5 +182,13 @@ int main(int argc, char* argv[]) {
 	printf("Average DFS Time: %3.6lf times\n",
 	       (double)totalDFSTime / ProblemNumber);
 	printf("--------------------\n");
+
+	// printf("RLmost pixel: %d\n", nngSolver.getRLmostPixel());
+	// printf("Step 2 pixel: %d\n", nngSolver.getStep2Pixel());
+	// printf("Step 4 pixel: %d\n", nngSolver.getStep4Pixel());
+	// printf("Step 5 pixel: %d\n", nngSolver.getStep5Pixel());
+	// printf("Step 6 pixel: %d\n", nngSolver.getStep6Pixel());
+	// printf("Step 7 pixel: %d\n", nngSolver.getStep7Pixel());
+	// printf("Step 8 pixel: %d\n", nngSolver.getStep8Pixel());
 	return 0;
 }
